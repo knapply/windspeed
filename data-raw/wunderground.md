@@ -517,5 +517,5 @@ write_rds(clean_df, "data/clean_df.rds")
 Which can be read back in like so:
 
 ``` r
-clean_df.rds <- read_rds("data/clean_df.rds")
+clean_df <- read_rds("data/clean_df.rds")
 ```
