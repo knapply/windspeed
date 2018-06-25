@@ -28,7 +28,7 @@ devtools::install_github("yihui/knitr")
 
 {`tidyverse`} installs ~21 packages of pure unadulterated magic. These include {`ggplot2`}, {`dplyr`}, {`tibble`}, {`stringr`}, and {`tidyr`} which are probably the biggest perks of using R.
 
-{`rvest`} is web scraping framework that makes pulling data from webpages super easy. It's essentially a port of Python's BeautifulSoup, but R's `%>%`, used to create pipelines of functions, makes scraping most websites easier.
+{`rvest`} is web scraping framework that makes pulling data from webpages super easy. It's essentially a port of Python's BeautifulSoup, but R's `%>%`, used to create pipelines of functions, makes scraping most websites really simple to grasp.
 
 Then, just load the packages by calling `library()`.
 
@@ -105,7 +105,7 @@ There's a lot going on here, but the algorithm is:
 6. Make it `as_tibble()`, a sweet data frame format.
 7. `mutate()` the data frame to add a column specifying the date and the url (just in case we want it).
 
-The whole function is wrapped in `safely()`, which returns a functions results as a list of `$results` and `$errors`. The Internet is a broken mess that is in a perpetual state of falling apart, so web scraping on any sort of scale almost inevitable results in an error from a broken URL or slow server. `safely()` prevents our code from stopping when this happens and notates the error message in `$errors`.
+The whole function is wrapped in `safely()`, which returns a functions results as a list of `$results` and `$errors`. The Internet is in a perpetual state of collapse, so web scraping on even a small scale is likely to hit errors from broken URLs. `safely()` prevents our code from stopping when this happens and notates the error message in `$errors`.
 
 ```{r}
 build_df <- safely(function(url){ 
@@ -128,9 +128,11 @@ build_df <- safely(function(url){
 
 With our `build_df()` function set up, we use `map()` to "map" it over `urls`. `map()` always returns a list object.
 
-It is always recommended to avoid `for()` loops in your R code, which is strange if you've coded in practically any other language. `map()` and a whole family of similar function essentially execute a `for()` loop for you by iterating through the first argument (`.x`) and applying the second argument (`.f`) to it and combining the results into an object. This was obnoxious to adjust to when I started but now I _really_ dig it.
+Sidenote for R vets: `map()` is essentially `base::lapply()`, which is usually a bit faster. The perks of using `map()` aren't really exploited until you're combining it with everything else in the functional programming playground of {`purrr`}. That said, I just discovered that `lapply()` fails here and crashes R while `map()` works fine. \*Raises Eyebrow\*
 
-This will take a while. A single core of your CPU is visiting several thousand web pages and extracting contents and increasing performance by taking advantage of your computer's multiple cores isn't worth the explanation here.
+It is always recommended to avoid `for()` loops in your R code (usually for the wrong reasons, but I digress), which is strange if you've coded in practically any other language. `map()` (and a whole family of similar functions) essentially executes a `for()` loop for you by iterating through the first argument (`.x`) and applying the second argument (`.f`) to it. It then combining the results into an object. This was obnoxious to adjust to when I started but now I _really_ dig it.
+
+This will take a while. A single core of your CPU is visiting several thousand web pages and extracting contents. Increasing performance by taking advantage of your computer's multiple cores isn't worth the explanation here and it's rude to the server's owner.
 
 ```{r eval=FALSE}
 raw_dfs <- map(.x = urls, .f = build_df)
