@@ -308,36 +308,17 @@ raw_df_clean_tz %>%
     ## 10 02:10 PM
     ## # ... with 354,357 more rows
 
-Now we need to drop to use the `"AM"` and `"PM"` information in `time` to convert them to 24-hour/military time so our computers can actually understand them.
-
-There's a lot going on here, but it breaks down like this:
-
-1.  `mutate()` to create an `am_pm` column by `str_extract()`ing the AM/PM portion of `time` with a regular expression.
-2.  `mutate()` to create a `minute` column by `str_extract()`ing the minute portion of `time` with a regular expression and converting to a number using `as.numeric()`.
-3.  `mutate()` to create a `hour` column by `str_extract()`ing the hour portion of `time` with a regular expression and converting to a number using `as.numeric()`.
-    -   Here, we use `case_when()`, because we want to add `12` to rows where our `am_pm` variable is `"PM"`.
-4.  `mutate()` to fix those `hour`s that are equal (`==`) to `12`, and (`&`) `am_pm` is `"AM"` using `if_else()`.
-    -   This is because 12:00 AM - 12:59 AM are really 00:00 - 00:59 in 24-hour time.
-    -   In `if_else()`, your first argument is your test, the second is what to use when the test returns `TRUE`, and the third argument is what to use when the the test returns `FALSE`.
-5.  `mutate()` to create a `date_time` column that creates a proper temporal variable so we know can know exactly when we are.
-    -   `str_glue()` is some Pythonista secret-sauce for handling strings. We we can refer to our `{date}`, `{hour}`, and `{minute}` columns and plug them in how we want as `{}` will be interpreted as code inside the string.
-    -   We can then take the resulting strings and convert them to a date time objects with `ymd_hm()`. I also specified the timezone (`tz`) here.
-6.  `select()` the columns in the order desired. Here we also drop the redundant `am_pm`, `hour`, `minute`, `time`, `time_cdt`, and `time_cst` columns by "subtracting" them with `-`.
-
 ``` r
 raw_df_clean_time <- raw_df_clean_tz %>%
-  mutate(am_pm = str_extract(time, "(A|P)M")) %>%                        # 1.
-  mutate(minute = as.numeric(str_extract(time, "(?<=:)\\d{2}"))) %>%     # 2.
-  mutate(hour = case_when(                                               # 3.
-    am_pm == "AM" ~ as.numeric(str_extract(time, "\\d{2}(?=:)")),
-    am_pm == "PM" ~ as.numeric(str_extract(time, "\\d{2}(?=:)")) + 12
-    )) %>%
-  mutate(hour = if_else(hour == 12 & am_pm == "AM", 0, hour)) %>%        # 4.
-  mutate(date_time = str_glue("{date} {hour}:{minute}") %>%              # 5.
-           ymd_hm(tz = "US/Central")
+  mutate(am_pm = str_extract(time, "(A|P)M")) %>%
+  mutate(hour = as.numeric(str_extract(time, "\\d{2}(?=:)"))) %>% 
+  mutate(minute = as.numeric(str_extract(time, "(?<=:)\\d{2}"))) %>%
+  mutate(date_time = str_glue("{date} {hour}:{minute} {am_pm}") %>%
+           as.POSIXct(tz = "US/Central", format = "%Y-%m-%d %I:%M %p")
          ) %>%
-  select(date, date_time, everything(), -am_pm, -hour, -minute, -time,   # 6.
-         -time_cdt, -time_cst)
+  distinct(date_time, .keep_all = TRUE) # there are some duplicate local times and
+                                        # METARS doesnt't clarify which is correct... 
+                                        # keeping first observations of each `date_time`
 ```
 
 And here's the result:
@@ -348,14 +329,14 @@ raw_df_clean_time %>%
   prettify()
 ```
 
-| date       | date\_time          | temp    | heat\_index | dew\_point | humidity | pressure | visibility | wind\_dir | wind\_speed | gust\_speed | precip | events | conditions | windchill |
-|:-----------|:--------------------|:--------|:------------|:-----------|:---------|:---------|:-----------|:----------|:------------|:------------|:-------|:-------|:-----------|:----------|
-| 2004-08-16 | 2004-08-16 10:30:00 | 73.4 °F | -           | 64.4 °F    | 73%      | 30.05 in | 10.0 mi    | WSW       | 6.9 mph     | -           | N/A    | NA     | Clear      | NA        |
-| 2004-08-16 | 2004-08-16 11:10:00 | 75.2 °F | -           | 64.4 °F    | 69%      | 30.05 in | 10.0 mi    | WSW       | 8.1 mph     | -           | N/A    | NA     | Clear      | NA        |
-| 2004-08-16 | 2004-08-16 11:30:00 | 77.0 °F | -           | 64.4 °F    | 65%      | 30.05 in | 10.0 mi    | SW        | 5.8 mph     | -           | N/A    | NA     | Clear      | NA        |
-| 2004-08-16 | 2004-08-16 11:50:00 | 78.8 °F | -           | 64.4 °F    | 61%      | 30.05 in | 10.0 mi    | WSW       | 6.9 mph     | -           | N/A    | NA     | Clear      | NA        |
-| 2004-08-16 | 2004-08-17 00:10:00 | 78.8 °F | -           | 62.6 °F    | 57%      | 30.05 in | 10.0 mi    | WSW       | 8.1 mph     | -           | N/A    | NA     | Clear      | NA        |
-| 2004-08-16 | 2004-08-17 00:30:00 | 78.8 °F | -           | 62.6 °F    | 57%      | 30.04 in | 10.0 mi    | West      | 8.1 mph     | -           | N/A    | NA     | Clear      | NA        |
+| date       | time\_cdt | temp    | heat\_index | dew\_point | humidity | pressure | visibility | wind\_dir | wind\_speed | gust\_speed | precip | events | conditions | windchill | time\_cst | time     | am\_pm |  hour|  minute| date\_time          |
+|:-----------|:----------|:--------|:------------|:-----------|:---------|:---------|:-----------|:----------|:------------|:------------|:-------|:-------|:-----------|:----------|:----------|:---------|:-------|-----:|-------:|:--------------------|
+| 2004-08-16 | 10:30 AM  | 73.4 °F | -           | 64.4 °F    | 73%      | 30.05 in | 10.0 mi    | WSW       | 6.9 mph     | -           | N/A    | NA     | Clear      | NA        | NA        | 10:30 AM | AM     |    10|      30| 2004-08-16 10:30:00 |
+| 2004-08-16 | 11:10 AM  | 75.2 °F | -           | 64.4 °F    | 69%      | 30.05 in | 10.0 mi    | WSW       | 8.1 mph     | -           | N/A    | NA     | Clear      | NA        | NA        | 11:10 AM | AM     |    11|      10| 2004-08-16 11:10:00 |
+| 2004-08-16 | 11:30 AM  | 77.0 °F | -           | 64.4 °F    | 65%      | 30.05 in | 10.0 mi    | SW        | 5.8 mph     | -           | N/A    | NA     | Clear      | NA        | NA        | 11:30 AM | AM     |    11|      30| 2004-08-16 11:30:00 |
+| 2004-08-16 | 11:50 AM  | 78.8 °F | -           | 64.4 °F    | 61%      | 30.05 in | 10.0 mi    | WSW       | 6.9 mph     | -           | N/A    | NA     | Clear      | NA        | NA        | 11:50 AM | AM     |    11|      50| 2004-08-16 11:50:00 |
+| 2004-08-16 | 12:10 PM  | 78.8 °F | -           | 62.6 °F    | 57%      | 30.05 in | 10.0 mi    | WSW       | 8.1 mph     | -           | N/A    | NA     | Clear      | NA        | NA        | 12:10 PM | PM     |    12|      10| 2004-08-16 12:10:00 |
+| 2004-08-16 | 12:30 PM  | 78.8 °F | -           | 62.6 °F    | 57%      | 30.04 in | 10.0 mi    | West      | 8.1 mph     | -           | N/A    | NA     | Clear      | NA        | NA        | 12:30 PM | PM     |    12|      30| 2004-08-16 12:30:00 |
 
 Clean Target Variables
 ----------------------
@@ -374,7 +355,7 @@ raw_df_clean_time %>%
   nrow() 
 ```
 
-    ## [1] 60701
+    ## [1] 60672
 
 ``` r
 raw_df_clean_time %>% 
@@ -382,7 +363,7 @@ raw_df_clean_time %>%
   nrow() 
 ```
 
-    ## [1] 60614
+    ## [1] 60585
 
 `temp`eratures are numbers, in °F, or `"-"`. Using the same technique as with `wind_speed`, we can count those up.
 
@@ -425,7 +406,7 @@ raw_df_clean_wind %>%
   select(wind_speed, wind_dir)
 ```
 
-    ## # A tibble: 354,367 x 2
+    ## # A tibble: 354,288 x 2
     ##    wind_speed wind_dir
     ##         <dbl> <chr>   
     ##  1        6.9 WSW     
@@ -438,7 +419,7 @@ raw_df_clean_wind %>%
     ##  8        6.9 WSW     
     ##  9        4.6 WSW     
     ## 10        5.8 SW      
-    ## # ... with 354,357 more rows
+    ## # ... with 354,278 more rows
 
 Using the same workflow, let's clean up the `temp` column by:
 
@@ -464,7 +445,7 @@ raw_df_clean_temp %>%
   select(temp)
 ```
 
-    ## # A tibble: 354,367 x 1
+    ## # A tibble: 354,288 x 1
     ##     temp
     ##    <dbl>
     ##  1  73.4
@@ -477,7 +458,20 @@ raw_df_clean_temp %>%
     ##  8  80.6
     ##  9  82.4
     ## 10  82.4
-    ## # ... with 354,357 more rows
+    ## # ... with 354,278 more rows
+
+Clean Pressure and Humidity
+===========================
+
+``` r
+raw_df_clean_pressure <- raw_df_clean_temp %>% 
+  mutate_if(is.character, na_if, "-") %>% 
+  mutate(pressure = pressure %>% 
+           str_remove("in") %>% 
+           str_trim() %>% 
+           as.numeric()
+         )
+```
 
 `clean_df`
 ----------
@@ -489,26 +483,40 @@ With our target variables cleaned up, let's make our final, `clean_df` by:
 2.  `rename()`ing our target variables just to keep track of their units of measurement
 
 ``` r
-clean_df <- raw_df_clean_temp %>% 
-  select(date, date_time, wind_speed, wind_dir, temp) %>% # 1.
-  rename(wind_speed_mph = wind_speed, temp_fahr = temp)   # 2.
+clean_df <- raw_df_clean_pressure %>% 
+  select(date, date_time, wind_speed, wind_dir, temp, pressure) %>%               # 1.
+  rename(wind_speed_mph = wind_speed, temp_F = temp, pressure_inHG = pressure)    # 2.
 ```
 
 And here it is:
 
 ``` r
 clean_df %>% 
+  glimpse()
+```
+
+    ## Observations: 354,288
+    ## Variables: 6
+    ## $ date           <date> 2004-08-16, 2004-08-16, 2004-08-16, 2004-08-16...
+    ## $ date_time      <dttm> 2004-08-16 10:30:00, 2004-08-16 11:10:00, 2004...
+    ## $ wind_speed_mph <dbl> 6.9, 8.1, 5.8, 6.9, 8.1, 8.1, 5.8, 6.9, 4.6, 5....
+    ## $ wind_dir       <chr> "WSW", "WSW", "SW", "WSW", "WSW", "West", "WSW"...
+    ## $ temp_F         <dbl> 73.4, 75.2, 77.0, 78.8, 78.8, 78.8, 80.6, 80.6,...
+    ## $ pressure_inHG  <dbl> 30.05, 30.05, 30.05, 30.05, 30.05, 30.04, 30.03...
+
+``` r
+clean_df %>% 
   prettify()
 ```
 
-| date       | date\_time          |  wind\_speed\_mph| wind\_dir |  temp\_fahr|
-|:-----------|:--------------------|-----------------:|:----------|-----------:|
-| 2004-08-16 | 2004-08-16 10:30:00 |               6.9| WSW       |        73.4|
-| 2004-08-16 | 2004-08-16 11:10:00 |               8.1| WSW       |        75.2|
-| 2004-08-16 | 2004-08-16 11:30:00 |               5.8| SW        |        77.0|
-| 2004-08-16 | 2004-08-16 11:50:00 |               6.9| WSW       |        78.8|
-| 2004-08-16 | 2004-08-17 00:10:00 |               8.1| WSW       |        78.8|
-| 2004-08-16 | 2004-08-17 00:30:00 |               8.1| West      |        78.8|
+| date       | date\_time          |  wind\_speed\_mph| wind\_dir |  temp\_F|  pressure\_inHG|
+|:-----------|:--------------------|-----------------:|:----------|--------:|---------------:|
+| 2004-08-16 | 2004-08-16 10:30:00 |               6.9| WSW       |     73.4|           30.05|
+| 2004-08-16 | 2004-08-16 11:10:00 |               8.1| WSW       |     75.2|           30.05|
+| 2004-08-16 | 2004-08-16 11:30:00 |               5.8| SW        |     77.0|           30.05|
+| 2004-08-16 | 2004-08-16 11:50:00 |               6.9| WSW       |     78.8|           30.05|
+| 2004-08-16 | 2004-08-16 12:10:00 |               8.1| WSW       |     78.8|           30.05|
+| 2004-08-16 | 2004-08-16 12:30:00 |               8.1| West      |     78.8|           30.04|
 
 And then we can save it to `"data/clean_df.rds"` like so:
 

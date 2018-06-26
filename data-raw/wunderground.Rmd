@@ -258,36 +258,19 @@ raw_df_clean_tz %>%
   select(time)
 ```
 
-Now we need to drop to use the `"AM"` and `"PM"` information in `time` to convert them to 24-hour/military time so our computers can actually understand them.
 
-There's a lot going on here, but it breaks down like this:
-
-1. `mutate()` to create an `am_pm` column by `str_extract()`ing the AM/PM portion of `time` with a regular expression.
-2. `mutate()` to create a `minute` column by `str_extract()`ing the minute portion of `time` with a regular expression and converting to a number using `as.numeric()`.
-3. `mutate()` to create a `hour` column by `str_extract()`ing the hour portion of `time` with a regular expression and converting to a number using `as.numeric()`.
-    + Here, we use `case_when()`, because we want to add `12` to rows where our `am_pm` variable is `"PM"`.
-4. `mutate()` to fix those `hour`s that are equal (`==`) to `12`, and (`&`) `am_pm` is `"AM"` using `if_else()`.
-    + This is because 12:00 AM - 12:59 AM are really 00:00 - 00:59 in 24-hour time.
-    + In `if_else()`, your first argument is your test, the second is what to use when the test returns `TRUE`, and the third argument is what to use when the the test returns `FALSE`.
-5. `mutate()` to create a `date_time` column that creates a proper temporal variable so we know can know exactly when we are.
-    + `str_glue()` is some Pythonista secret-sauce for handling strings. We we can refer to our `{date}`, `{hour}`, and `{minute}` columns and plug them in how we want as `{}` will be interpreted as code inside the string.
-    + We can then take the resulting strings and convert them to a date time objects with `ymd_hm()`. I also specified the timezone (`tz`) here.
-6. `select()` the columns in the order desired. Here we also drop the redundant `am_pm`, `hour`, `minute`, `time`, `time_cdt`, and `time_cst` columns by "subtracting" them with `-`.
 
 ```{r}
 raw_df_clean_time <- raw_df_clean_tz %>%
-  mutate(am_pm = str_extract(time, "(A|P)M")) %>%                        # 1.
-  mutate(minute = as.numeric(str_extract(time, "(?<=:)\\d{2}"))) %>%     # 2.
-  mutate(hour = case_when(                                               # 3.
-    am_pm == "AM" ~ as.numeric(str_extract(time, "\\d{2}(?=:)")),
-    am_pm == "PM" ~ as.numeric(str_extract(time, "\\d{2}(?=:)")) + 12
-    )) %>%
-  mutate(hour = if_else(hour == 12 & am_pm == "AM", 0, hour)) %>%        # 4.
-  mutate(date_time = str_glue("{date} {hour}:{minute}") %>%              # 5.
-           ymd_hm(tz = "US/Central")
+  mutate(am_pm = str_extract(time, "(A|P)M")) %>%
+  mutate(hour = as.numeric(str_extract(time, "\\d{2}(?=:)"))) %>% 
+  mutate(minute = as.numeric(str_extract(time, "(?<=:)\\d{2}"))) %>%
+  mutate(date_time = str_glue("{date} {hour}:{minute} {am_pm}") %>%
+           as.POSIXct(tz = "US/Central", format = "%Y-%m-%d %I:%M %p")
          ) %>%
-  select(date, date_time, everything(), -am_pm, -hour, -minute, -time,   # 6.
-         -time_cdt, -time_cst)
+  distinct(date_time, .keep_all = TRUE) # there are some duplicate local times and
+                                        # METARS doesnt't clarify which is correct... 
+                                        # keeping first observations of each `date_time`
 ```
 
 And here's the result:
@@ -382,6 +365,19 @@ raw_df_clean_temp %>%
   select(temp)
 ```
 
+# Clean Pressure and Humidity
+
+```{r}
+raw_df_clean_pressure <- raw_df_clean_temp %>% 
+  mutate_if(is.character, na_if, "-") %>% 
+  mutate(pressure = pressure %>% 
+           str_remove("in") %>% 
+           str_trim() %>% 
+           as.numeric()
+         )
+```
+
+
 ## `clean_df`
 
 With our target variables cleaned up, let's make our final, `clean_df` by:
@@ -391,14 +387,17 @@ With our target variables cleaned up, let's make our final, `clean_df` by:
 2. `rename()`ing our target variables just to keep track of their units of measurement
 
 ```{r}
-clean_df <- raw_df_clean_temp %>% 
-  select(date, date_time, wind_speed, wind_dir, temp) %>% # 1.
-  rename(wind_speed_mph = wind_speed, temp_fahr = temp)   # 2.
+clean_df <- raw_df_clean_pressure %>% 
+  select(date, date_time, wind_speed, wind_dir, temp, pressure) %>%               # 1.
+  rename(wind_speed_mph = wind_speed, temp_F = temp, pressure_inHG = pressure)    # 2.
 ```
 
 And here it is:
 
 ```{r}
+clean_df %>% 
+  glimpse()
+
 clean_df %>% 
   prettify()
 ```
